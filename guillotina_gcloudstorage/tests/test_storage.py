@@ -235,7 +235,7 @@ async def test_copy(dummy_request):
     new_gmng = GCloudFileManager(new_ob, request, IContent['file'].bind(new_ob))
     new_dm = DBDataManager(new_gmng)
     await new_dm.load()
-    await new_gmng.copy(new_gmng, new_dm)
+    await gmng.copy(new_gmng, new_dm)
 
     new_ob.file.content_type == ob.file.content_type
     new_ob.file.size == ob.file.size
