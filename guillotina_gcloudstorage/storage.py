@@ -13,7 +13,6 @@ from guillotina.interfaces import IFileStorageManager
 from guillotina.interfaces import IJSONToValue
 from guillotina.interfaces import IRequest
 from guillotina.interfaces import IResource
-from guillotina.interfaces import IUploadDataManager
 from guillotina.schema import Object
 from guillotina.utils import get_current_request
 from guillotina.utils import to_str
