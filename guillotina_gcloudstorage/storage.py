@@ -233,12 +233,12 @@ class GCloudFileManager(object):
             if resp.status == 308:
                 # verify we're on track with google's resumable api...
                 range_header = resp.headers['Range']
-                if len(chunk) - 1 != int(range_header.split('-')[-1]):
+                if offset - 1 != int(range_header.split('-')[-1]):
                     # range header is the byte range google has received,
                     # which is different from the total size--off by one
                     raise HTTPPreconditionFailed(
-                        reason='TUS and google cloud storage offsets do not match. '
-                               'Google: {range_header}, TUS(offset): {offset}')
+                        reason=f'TUS and google cloud storage offsets do not match. '
+                               f'Google: {range_header}, TUS(offset): {offset}')
             elif resp.status in [200, 201]:
                 # file manager will double check offsets and sizes match
                 break
