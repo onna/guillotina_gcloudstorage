@@ -7,5 +7,5 @@ from guillotina_rediscache.files import RedisFileDataManager
 @configure.adapter(
     for_=IGCloudFileStorageManager,
     provides=IUploadDataManager)
-class S3DataManager(RedisFileDataManager):
+class GCloudDataManager(RedisFileDataManager):
     pass

@@ -36,18 +36,6 @@ class IGCloudFileStorageManager(IFileStorageManager):
     pass
 
 
-try:
-    from guillotina_rediscache.files import RedisFileDataManager
-
-    @configure.adapter(
-        for_=IGCloudFileStorageManager,
-        provides=IUploadDataManager)
-    class GCloudDataManager(RedisFileDataManager):
-        pass
-except ImportError:
-    pass
-
-
 log = logging.getLogger('guillotina_gcloudstorage')
 
 MAX_SIZE = 1073741824
