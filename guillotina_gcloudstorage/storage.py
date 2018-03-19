@@ -4,11 +4,11 @@ from aiohttp.web_exceptions import HTTPPreconditionFailed
 from datetime import datetime
 from guillotina import configure
 from guillotina.component import get_utility
-from guillotina.event import notify
 from guillotina.exceptions import FileNotFoundException
 from guillotina.files import BaseCloudFile
 from guillotina.files.utils import generate_key
 from guillotina.interfaces import IApplication
+from guillotina.interfaces import IFileCleanup
 from guillotina.interfaces import IFileStorageManager
 from guillotina.interfaces import IJSONToValue
 from guillotina.interfaces import IRequest
@@ -17,8 +17,6 @@ from guillotina.interfaces import IUploadDataManager
 from guillotina.schema import Object
 from guillotina.utils import get_current_request
 from guillotina.utils import to_str
-from guillotina_gcloudstorage.events import FinishGCloudUpload
-from guillotina_gcloudstorage.events import InitialGCloudUpload
 from guillotina_gcloudstorage.interfaces import IGCloudBlobStore
 from guillotina_gcloudstorage.interfaces import IGCloudFile
 from guillotina_gcloudstorage.interfaces import IGCloudFileField
@@ -95,6 +93,10 @@ class GCloudFileManager(object):
         self.request = request
         self.field = field
 
+    def should_clean(self, file):
+        cleanup = IFileCleanup(self.context, None)
+        return cleanup is None or cleanup.should_clean(file=file, field=self.field)
+
     async def iter_data(self):
         file = self.field.get(self.field.context or self.context)
         if file is None or file.uri is None:
@@ -165,7 +167,6 @@ class GCloudFileManager(object):
                     raise GoogleCloudException(text)
                 resumable_uri = call.headers['Location']
 
-            await notify(InitialGCloudUpload(self.context))
             await dm.update(
                 current_upload=0,
                 resumable_uri=resumable_uri,
@@ -246,17 +247,16 @@ class GCloudFileManager(object):
     async def finish(self, dm):
         file = self.field.get(self.field.context or self.context)
         if file is not None and file.uri is not None:
-            try:
-                await self.delete_upload(file.uri)
-            except GoogleCloudException:
-                log.warn(f'Could not delete existing google cloud file '
-                         f'with uri: {self.uri}')
+            if self.should_clean(file):
+                try:
+                    await self.delete_upload(file.uri)
+                except GoogleCloudException:
+                    log.warn(f'Could not delete existing google cloud file '
+                             f'with uri: {self.uri}')
         await dm.update(
             uri=dm.get('upload_file_id'),
             upload_file_id=None
         )
-
-        await notify(FinishGCloudUpload(self.context))
 
     async def copy(self, to_storage_manager, to_dm):
         file = self.field.get(self.field.context or self.context)
