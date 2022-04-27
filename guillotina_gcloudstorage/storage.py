@@ -400,3 +400,34 @@ class GCloudBlobStore(object):
                     for item in items:
                         yield item
                     page_token = data.get('nextPageToken')
+
+    async def iterate_bucket_paged(self, recovery_page_token=None):
+        url = "{}/{}/o".format(OBJECT_BASE_URL, await self.get_bucket_name())
+        req = get_current_request()
+
+        if recovery_page_token is None:
+            async with self.session.get(
+                    url,
+                    headers={
+                        "AUTHORIZATION": "Bearer {}".format(await self.get_access_token())
+                    },
+                    params={"prefix": req._container_id + "/"},
+            ) as resp:
+                assert resp.status == 200
+                data = await resp.json()
+                page_token = data.get("nextPageToken")
+                yield data
+        else:
+            page_token = recovery_page_token
+
+        while page_token is not None:
+            async with self.session.get(
+                    url,
+                    headers={
+                        "AUTHORIZATION": "Bearer {}".format(await self.get_access_token())
+                    },
+                    params={"prefix": req._container_id, "pageToken": page_token},
+            ) as resp:
+                data = await resp.json()
+                yield data
+                page_token = data.get("nextPageToken")
