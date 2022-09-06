@@ -40,3 +40,8 @@ Using pip (requires Python > 3.7):
     ./bin/pip install -e .[test]
     pre-commit install
 
+
+Unit Tests & Testing
+--------------------------------
+
+The unit tests in this repo are a bit flaky and difficult to run. There is some level of reliance on having environment variables setup that point to an actual GCP environment, which you can find in `tests/fixtures.py`. Currently we rely on manually testing changes in order to verify functionality.
