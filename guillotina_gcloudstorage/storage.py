@@ -540,7 +540,7 @@ class GCloudBlobStore(object):
     async def iterate_bucket_page(self, page_token=None):
         url = "{}/{}/o".format(OBJECT_BASE_URL, await self.get_bucket_name())
         container = task_vars.container.get()
-        params = {"prefix": container.id}
+        params = {"prefix": container.id + "/"}
         if page_token:
             params["pageToken"] = page_token
 
