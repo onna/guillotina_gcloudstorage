@@ -264,7 +264,7 @@ class GCloudFileManager(object):
                             "info": text,
                         }
                     )
-                content_range = headers["Content-Range"]
+                content_range = headers.get("Content-Range", "")
                 raise GoogleCloudException(
                     f"{call.status}: {text} - Content Range: '{content_range}'"
                 )
