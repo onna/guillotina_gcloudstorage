@@ -1,3 +1,9 @@
+6.0.4 (unreleased)
+------------------
+
+- Capture "Content-Range" header in request if resumable upload error occurs
+  [OnnaRob]
+
 6.0.3 (unreleased)
 ------------------
 
