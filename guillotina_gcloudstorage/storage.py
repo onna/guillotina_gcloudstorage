@@ -264,7 +264,10 @@ class GCloudFileManager(object):
                             "info": text,
                         }
                     )
-                raise GoogleCloudException(f"{call.status}: {text}")
+                content_range = headers.get("Content-Range", "")
+                raise GoogleCloudException(
+                    f"{call.status}: {text} - Content Range: '{content_range}'"
+                )
             return call
 
     async def append(self, dm, iterable, offset) -> int:
