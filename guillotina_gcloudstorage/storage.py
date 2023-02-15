@@ -50,7 +50,9 @@ log = logging.getLogger("guillotina_gcloudstorage")
 MAX_SIZE = 1073741824
 
 SCOPES = ["https://www.googleapis.com/auth/devstorage.read_write"]
-UPLOAD_URL = "https://www.googleapis.com/upload/storage/v1/b/{bucket}/o?uploadType=resumable"  # noqa
+UPLOAD_URL = (
+    "https://www.googleapis.com/upload/storage/v1/b/{bucket}/o?uploadType=resumable"
+)  # noqa
 OBJECT_BASE_URL = "https://www.googleapis.com/storage/v1/b"
 CHUNK_SIZE = 524288
 MAX_RETRIES = 5
@@ -431,10 +433,8 @@ class GCloudBlobStore(object):
 
     def get_client(self):
         if self._client is None:
-            self._client = (
-                google.cloud.storage.Client.from_service_account_json(  # noqa
-                    self._json_credentials
-                )
+            self._client = google.cloud.storage.Client.from_service_account_json(  # noqa
+                self._json_credentials
             )
         return self._client
 
