@@ -1,3 +1,9 @@
+6.0.5 (unreleased)
+------------------
+
+- Configurable prefix in `iterate_bucket_page` method
+  [j-durbin]
+
 6.0.4 (unreleased)
 ------------------
 
