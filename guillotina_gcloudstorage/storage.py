@@ -201,7 +201,11 @@ class GCloudFileManager(object):
                 "Content-Length": str(call_size),
             }
         )
-        async with util.session.post(init_url, headers=headers, data=metadata,) as call:
+        async with util.session.post(
+            init_url,
+            headers=headers,
+            data=metadata,
+        ) as call:
             if call.status != 200:
                 text = await call.text()
                 raise GoogleCloudException(f"{call.status}: {text}")
@@ -326,7 +330,10 @@ class GCloudFileManager(object):
             OBJECT_BASE_URL, await util.get_bucket_name(), quote_plus(file.uri)
         )
 
-        async with util.session.get(url, headers=await self.get_headers(),) as api_resp:
+        async with util.session.get(
+            url,
+            headers=await self.get_headers(),
+        ) as api_resp:
             return api_resp.status == 200
 
     @backoff.on_exception(backoff.expo, RETRIABLE_EXCEPTIONS, max_tries=4)
@@ -351,7 +358,10 @@ class GCloudFileManager(object):
 
         headers = await self.get_headers()
         headers.update({"Content-Type": "application/json"})
-        async with util.session.post(url, headers=headers,) as resp:
+        async with util.session.post(
+            url,
+            headers=headers,
+        ) as resp:
             if resp.status == 404:
                 text = await resp.text()
                 reason = (
@@ -446,10 +456,11 @@ class GCloudBlobStore(object):
 
     def get_client(self):
         if self._client is None:
-
             if self._json_credentials:
-                self._client = google.cloud.storage.Client.from_service_account_json(  # noqa
-                    self._json_credentials
+                self._client = (
+                    google.cloud.storage.Client.from_service_account_json(  # noqa
+                        self._json_credentials
+                    )
                 )
             else:
                 self._client = google.cloud.storage.Client()
@@ -570,7 +581,11 @@ class GCloudBlobStore(object):
         if access_token:
             headers = {"AUTHORIZATION": f"Bearer {access_token}"}
 
-        async with self.session.get(url, headers=headers, params=params,) as resp:
+        async with self.session.get(
+            url,
+            headers=headers,
+            params=params,
+        ) as resp:
             assert resp.status == 200
             data = await resp.json()
             return data
