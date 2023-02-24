@@ -5,6 +5,7 @@ import logging
 from datetime import datetime
 from typing import AsyncIterator
 from urllib.parse import quote_plus
+import os
 
 from zope.interface import implementer
 
@@ -48,6 +49,10 @@ class IGCloudFileStorageManager(IExternalFileStorageManager):
 log = logging.getLogger("guillotina_gcloudstorage")
 
 MAX_SIZE = 1073741824
+
+METADATA_URL = "http://metadata.google.internal/computeMetadata/v1/"
+METADATA_HEADERS = {"Metadata-Flavor": "Google"}
+SERVICE_ACCOUNT = "default"
 
 SCOPES = ["https://www.googleapis.com/auth/devstorage.read_write"]
 UPLOAD_URL = "https://www.googleapis.com/upload/storage/v1/b/{bucket}/o?uploadType=resumable"  # noqa
@@ -97,6 +102,17 @@ class GCloudFileManager(object):
         cleanup = IFileCleanup(self.context, None)
         return cleanup is None or cleanup.should_clean(file=file, field=self.field)
 
+    async def get_headers(self):
+        util = get_utility(IGCloudBlobStore)
+
+        access_token = await util.get_access_token()
+
+        headers = {}
+        if access_token:
+            headers["AUTHORIZATION"] = f"Bearer {access_token}"
+
+        return headers
+
     async def iter_data(self, uri=None, headers=None):
         if uri is None:
             file = self.field.get(self.field.context or self.context)
@@ -105,16 +121,13 @@ class GCloudFileManager(object):
             else:
                 uri = file.uri
 
-        if headers is None:
-            headers = {}
-
         util = get_utility(IGCloudBlobStore)
         url = "{}/{}/o/{}".format(
             OBJECT_BASE_URL, await util.get_bucket_name(), quote_plus(uri)
         )
-        headers["AUTHORIZATION"] = "Bearer {}".format(await util.get_access_token())
+
         async with util.session.get(
-            url, headers=headers, params={"alt": "media"}, timeout=-1
+            url, headers=await self.get_headers(), params={"alt": "media"}, timeout=-1
         ) as api_resp:
             if api_resp.status not in (200, 206):
                 text = await api_resp.text()
@@ -180,17 +193,17 @@ class GCloudFileManager(object):
             {"CREATOR": creator, "REQUEST": str(request), "NAME": dm.get("filename")}
         )
         call_size = len(metadata)
-        async with util.session.post(
-            init_url,
-            headers={
-                "AUTHORIZATION": "Bearer {}".format(await util.get_access_token()),
+
+        headers = await self.get_headers()
+        headers.update(
+            {
                 "X-Upload-Content-Type": to_str(dm.content_type),
                 "X-Upload-Content-Length": str(dm.size),
                 "Content-Type": "application/json; charset=UTF-8",
                 "Content-Length": str(call_size),
-            },
-            data=metadata,
-        ) as call:
+            }
+        )
+        async with util.session.post(init_url, headers=headers, data=metadata,) as call:
             if call.status != 200:
                 text = await call.text()
                 raise GoogleCloudException(f"{call.status}: {text}")
@@ -208,10 +221,7 @@ class GCloudFileManager(object):
                 OBJECT_BASE_URL, await util.get_bucket_name(), quote_plus(uri)
             )
             async with util.session.delete(
-                url,
-                headers={
-                    "AUTHORIZATION": "Bearer {}".format(await util.get_access_token())
-                },
+                url, headers=await self.get_headers()
             ) as resp:
                 try:
                     data = await resp.json()
@@ -317,12 +327,8 @@ class GCloudFileManager(object):
         url = "{}/{}/o/{}".format(
             OBJECT_BASE_URL, await util.get_bucket_name(), quote_plus(file.uri)
         )
-        async with util.session.get(
-            url,
-            headers={
-                "AUTHORIZATION": "Bearer {}".format(await util.get_access_token())
-            },
-        ) as api_resp:
+
+        async with util.session.get(url, headers=await self.get_headers(),) as api_resp:
             return api_resp.status == 200
 
     @backoff.on_exception(backoff.expo, RETRIABLE_EXCEPTIONS, max_tries=4)
@@ -344,13 +350,10 @@ class GCloudFileManager(object):
             bucket_name,
             quote_plus(new_uri),
         )
-        async with util.session.post(
-            url,
-            headers={
-                "AUTHORIZATION": "Bearer {}".format(await util.get_access_token()),
-                "Content-Type": "application/json",
-            },
-        ) as resp:
+
+        headers = await self.get_headers()
+        headers.update({"Content-Type": "application/json"})
+        async with util.session.post(url, headers=headers,) as resp:
             if resp.status == 404:
                 text = await resp.text()
                 reason = (
@@ -395,9 +398,15 @@ class GCloudBlobStore(object):
     def __init__(self, settings, loop=None):
         self._loop = loop
         self._json_credentials = settings["json_credentials"]
-        self._credentials = ServiceAccountCredentials.from_json_keyfile_name(
-            self._json_credentials, SCOPES
-        )
+
+        if os.path.exists(self._json_credentials):
+            self._credentials = ServiceAccountCredentials.from_json_keyfile_name(
+                self._json_credentials, SCOPES
+            )
+        else:
+            self._credentials = None
+            self._json_credentials = None
+
         self._bucket_name = settings["bucket"]
         self._location = settings.get("location", None)
         self._project = settings.get("project", None)
@@ -420,21 +429,32 @@ class GCloudBlobStore(object):
             self._session = aiohttp.ClientSession()
         return self._session
 
-    def _get_access_token(self):
-        access_token = self._credentials.get_access_token()
-        self._creation_access_token = datetime.now()
-        return access_token.access_token
-
     async def get_access_token(self):
-        return await run_async(self._get_access_token)
+        # If not using json service credentials, get the access token based on pod rbac
+        if not self._credentials:
+            url = "{}instance/service-accounts/{}/token".format(
+                METADATA_URL, SERVICE_ACCOUNT
+            )
+
+            # Request an access token from the metadata server.
+            async with self.session.get(url, headers=METADATA_HEADERS) as resp:
+                assert resp.status == 200
+                data = await resp.json()
+                access_token = data["access_token"]
+        else:
+            access_token = self._credentials.get_access_token().access_token
+        self._creation_access_token = datetime.now()
+        return access_token
 
     def get_client(self):
         if self._client is None:
-            self._client = (
-                google.cloud.storage.Client.from_service_account_json(  # noqa
+
+            if self._json_credentials:
+                self._client = google.cloud.storage.Client.from_service_account_json(  # noqa
                     self._json_credentials
                 )
-            )
+            else:
+                self._client = google.cloud.storage.Client()
         return self._client
 
     def _create_bucket(self, bucket_name, client):
@@ -547,13 +567,13 @@ class GCloudBlobStore(object):
         if page_token:
             params["pageToken"] = page_token
 
-        async with self.session.get(
-            url,
-            headers={
-                "AUTHORIZATION": "Bearer {}".format(await self.get_access_token())
-            },
-            params=params,
-        ) as resp:
+        access_token = await self.get_access_token()
+        if access_token:
+            headers = {"AUTHORIZATION": f"Bearer {access_token}"}
+        else:
+            headers = {}
+
+        async with self.session.get(url, headers=headers, params=params,) as resp:
             assert resp.status == 200
             data = await resp.json()
             return data
