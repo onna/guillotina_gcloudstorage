@@ -6,15 +6,13 @@ pre-checks-deps: lint-deps
 
 pre-checks: pre-checks-deps
 	flake8 guillotina_gcloudstorage --config=setup.cfg
-	isort -c -rc guillotina_gcloudstorage
 	black --check --verbose guillotina_gcloudstorage
 	mypy -p guillotina_gcloudstorage --ignore-missing-imports
 
 lint-deps:
-	pip install "isort>=4,<5" black
+	pip install "isort>=4,<5" black==19.10b0
 
 lint:
-	isort -rc guillotina_gcloudstorage
 	black guillotina_gcloudstorage
 
 

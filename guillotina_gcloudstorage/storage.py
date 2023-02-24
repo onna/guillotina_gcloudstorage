@@ -1,19 +1,5 @@
 # -*- coding: utf-8 -*-
-import asyncio
-import json
-import logging
 from datetime import datetime
-from typing import AsyncIterator
-from urllib.parse import quote_plus
-import os
-
-from zope.interface import implementer
-
-import aiohttp
-import backoff
-import google.api_core.exceptions
-import google.cloud.exceptions
-import google.cloud.storage
 from guillotina import configure
 from guillotina import task_vars
 from guillotina.component import get_multi_adapter
@@ -34,12 +20,24 @@ from guillotina.schema import Object
 from guillotina.utils import apply_coroutine
 from guillotina.utils import get_authenticated_user_id
 from guillotina.utils import get_current_request
-from guillotina.utils import run_async
 from guillotina.utils import to_str
 from guillotina_gcloudstorage.interfaces import IGCloudBlobStore
 from guillotina_gcloudstorage.interfaces import IGCloudFile
 from guillotina_gcloudstorage.interfaces import IGCloudFileField
 from oauth2client.service_account import ServiceAccountCredentials
+from typing import AsyncIterator
+from urllib.parse import quote_plus
+from zope.interface import implementer
+
+import aiohttp
+import asyncio
+import backoff
+import google.api_core.exceptions
+import google.cloud.exceptions
+import google.cloud.storage
+import json
+import logging
+import os
 
 
 class IGCloudFileStorageManager(IExternalFileStorageManager):
@@ -567,11 +565,10 @@ class GCloudBlobStore(object):
         if page_token:
             params["pageToken"] = page_token
 
+        headers = {}
         access_token = await self.get_access_token()
         if access_token:
             headers = {"AUTHORIZATION": f"Bearer {access_token}"}
-        else:
-            headers = {}
 
         async with self.session.get(url, headers=headers, params=params,) as resp:
             assert resp.status == 200
