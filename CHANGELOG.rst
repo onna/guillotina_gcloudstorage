@@ -1,3 +1,7 @@
+6.0.6 (unreleased)
+------------------
+- Allow usage of Workload Identities for GCP authentication
+
 6.0.5 (unreleased)
 ------------------
 
