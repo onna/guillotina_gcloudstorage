@@ -1,3 +1,7 @@
+6.0.7 (unreleased)
+------------------
+- Method for generating signed download URLs
+
 6.0.6 (unreleased)
 ------------------
 - Allow usage of Workload Identities for GCP authentication
