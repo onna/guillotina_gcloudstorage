@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from datetime import datetime
+from datetime import timedelta
 from guillotina import configure
 from guillotina import task_vars
 from guillotina.component import get_multi_adapter
@@ -589,3 +590,11 @@ class GCloudBlobStore(object):
             assert resp.status == 200
             data = await resp.json()
             return data
+
+    async def generate_download_signed_url(self, key, expiration=timedelta(minutes=30)):
+        client = self.get_client()
+        bucket = google.cloud.storage.Bucket(client, name=await self.get_bucket_name())
+        blob = bucket.blob(key)
+        return blob.generate_signed_url(
+            version="v4", expiration=expiration, method="GET"
+        )
