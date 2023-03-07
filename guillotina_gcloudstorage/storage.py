@@ -591,10 +591,17 @@ class GCloudBlobStore(object):
             data = await resp.json()
             return data
 
-    async def generate_download_signed_url(self, key, expiration=timedelta(minutes=30)):
+    async def generate_download_signed_url(
+        self, key, expiration=timedelta(minutes=30), credentials=None
+    ):
         client = self.get_client()
         bucket = google.cloud.storage.Bucket(client, name=await self.get_bucket_name())
         blob = bucket.blob(key)
-        return blob.generate_signed_url(
-            version="v4", expiration=expiration, method="GET"
-        )
+        request_args = {
+            "version": "v4",
+            "expiration": expiration,
+            "method": "GET",
+        }
+        if credentials:
+            request_args["credentials"] = credentials
+        return blob.generate_signed_url(**request_args)
