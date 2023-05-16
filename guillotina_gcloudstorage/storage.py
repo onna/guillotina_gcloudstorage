@@ -569,11 +569,11 @@ class GCloudBlobStore(object):
                 yield item
             page_token = data.get("nextPageToken")
 
-    async def iterate_bucket_page(self, page_token=None, prefix=None):
+    async def iterate_bucket_page(self, page_token=None, prefix=None, **params):
         url = "{}/{}/o".format(OBJECT_BASE_URL, await self.get_bucket_name())
         container = task_vars.container.get()
         prefix = prefix or container.id + "/"
-        params = {"prefix": prefix}
+        params.update({"prefix": prefix})
         if page_token:
             params["pageToken"] = page_token
 
