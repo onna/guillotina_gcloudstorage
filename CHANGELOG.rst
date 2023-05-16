@@ -1,3 +1,7 @@
+6.0.8 (unreleased)
+------------------
+- Support arbitrary args to iterate bucket page method, e.g. to include deleted versions.
+ 
 6.0.7 (unreleased)
 ------------------
 - Method for generating signed download URLs
