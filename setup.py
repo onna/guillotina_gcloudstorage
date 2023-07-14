@@ -35,6 +35,7 @@ setup(
         "gcloud",
         "ujson",
         "backoff",
+        "async-lru",
     ],
     extras_require={"test": test_reqs},
     tests_require=test_reqs,
