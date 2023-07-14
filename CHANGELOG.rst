@@ -1,3 +1,7 @@
+6.0.9 (unreleased)
+------------------
+- Cache access tokens when using pod RBAC.
+
 6.0.8 (unreleased)
 ------------------
 - Support arbitrary args to iterate bucket page method, e.g. to include deleted versions.

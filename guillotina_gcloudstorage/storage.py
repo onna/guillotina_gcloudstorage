@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from async_lru import alru_cache
 from datetime import datetime
 from datetime import timedelta
 from guillotina import configure
@@ -39,6 +40,7 @@ import google.cloud.storage
 import json
 import logging
 import os
+import time
 
 
 class IGCloudFileStorageManager(IExternalFileStorageManager):
@@ -202,11 +204,7 @@ class GCloudFileManager(object):
                 "Content-Length": str(call_size),
             }
         )
-        async with util.session.post(
-            init_url,
-            headers=headers,
-            data=metadata,
-        ) as call:
+        async with util.session.post(init_url, headers=headers, data=metadata) as call:
             if call.status != 200:
                 text = await call.text()
                 raise GoogleCloudException(f"{call.status}: {text}")
@@ -331,10 +329,7 @@ class GCloudFileManager(object):
             OBJECT_BASE_URL, await util.get_bucket_name(), quote_plus(file.uri)
         )
 
-        async with util.session.get(
-            url,
-            headers=await self.get_headers(),
-        ) as api_resp:
+        async with util.session.get(url, headers=await self.get_headers()) as api_resp:
             return api_resp.status == 200
 
     @backoff.on_exception(backoff.expo, RETRIABLE_EXCEPTIONS, max_tries=4)
@@ -359,10 +354,7 @@ class GCloudFileManager(object):
 
         headers = await self.get_headers()
         headers.update({"Content-Type": "application/json"})
-        async with util.session.post(
-            url,
-            headers=headers,
-        ) as resp:
+        async with util.session.post(url, headers=headers) as resp:
             if resp.status == 404:
                 text = await resp.text()
                 reason = (
@@ -400,7 +392,19 @@ class GCloudFileField(Object):
         super(GCloudFileField, self).__init__(schema=self.schema, **kw)
 
 
-# Configuration Utility
+@alru_cache(maxsize=2)
+async def _get_access_token(_):
+    url = "{}instance/service-accounts/{}/token".format(METADATA_URL, SERVICE_ACCOUNT)
+
+    # Request an access token from the metadata server.
+    async with aiohttp.ClientSession().get(url, headers=METADATA_HEADERS) as resp:
+        assert resp.status == 200
+        data = await resp.json()
+        return data["access_token"]
+
+
+async def get_access_token():
+    return await _get_access_token(round(time.time() / 300))
 
 
 class GCloudBlobStore(object):
@@ -441,15 +445,7 @@ class GCloudBlobStore(object):
     async def get_access_token(self):
         # If not using json service credentials, get the access token based on pod rbac
         if not self._credentials:
-            url = "{}instance/service-accounts/{}/token".format(
-                METADATA_URL, SERVICE_ACCOUNT
-            )
-
-            # Request an access token from the metadata server.
-            async with self.session.get(url, headers=METADATA_HEADERS) as resp:
-                assert resp.status == 200
-                data = await resp.json()
-                access_token = data["access_token"]
+            access_token = await get_access_token()
         else:
             access_token = self._credentials.get_access_token().access_token
         self._creation_access_token = datetime.now()
@@ -582,11 +578,7 @@ class GCloudBlobStore(object):
         if access_token:
             headers = {"AUTHORIZATION": f"Bearer {access_token}"}
 
-        async with self.session.get(
-            url,
-            headers=headers,
-            params=params,
-        ) as resp:
+        async with self.session.get(url, headers=headers, params=params) as resp:
             assert resp.status == 200
             data = await resp.json()
             return data
@@ -597,11 +589,7 @@ class GCloudBlobStore(object):
         client = self.get_client()
         bucket = google.cloud.storage.Bucket(client, name=await self.get_bucket_name())
         blob = bucket.blob(key)
-        request_args = {
-            "version": "v4",
-            "expiration": expiration,
-            "method": "GET",
-        }
+        request_args = {"version": "v4", "expiration": expiration, "method": "GET"}
         if credentials:
             request_args["credentials"] = credentials
         return blob.generate_signed_url(**request_args)
