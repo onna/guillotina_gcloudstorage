@@ -1,3 +1,7 @@
+6.0.9
+------------------
+- Cache Google access tokens for 30 min
+
 6.0.8 (unreleased)
 ------------------
 - Support arbitrary args to iterate bucket page method, e.g. to include deleted versions.

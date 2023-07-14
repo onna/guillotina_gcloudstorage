@@ -407,6 +407,7 @@ class GCloudBlobStore(object):
     def __init__(self, settings, loop=None):
         self._loop = loop
         self._json_credentials = settings["json_credentials"]
+        self._last_access_token = None
 
         if os.path.exists(self._json_credentials):
             self._credentials = ServiceAccountCredentials.from_json_keyfile_name(
@@ -445,14 +446,25 @@ class GCloudBlobStore(object):
                 METADATA_URL, SERVICE_ACCOUNT
             )
 
+            now = datetime.now()
+
+            # Google token have a 3600s, we're being conservative and renewing every 1800
+            if (
+                self._last_access_token
+                and now - self._creation_access_token < timedelta(seconds=1800)
+            ):
+                return self._last_access_token
+
             # Request an access token from the metadata server.
             async with self.session.get(url, headers=METADATA_HEADERS) as resp:
                 assert resp.status == 200
                 data = await resp.json()
                 access_token = data["access_token"]
+                self._creation_access_token = datetime.now()
+                self._last_access_token = access_token
+
         else:
             access_token = self._credentials.get_access_token().access_token
-        self._creation_access_token = datetime.now()
         return access_token
 
     def get_client(self):
