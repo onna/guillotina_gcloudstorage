@@ -533,6 +533,7 @@ class GCloudBlobStore(object):
                 )
         return bucket
 
+    @backoff.on_exception(backoff.expo, RETRIABLE_EXCEPTIONS, max_tries=10)
     async def get_bucket_name(self):
         if "." in self._bucket_name:
             char_delimiter = "."
