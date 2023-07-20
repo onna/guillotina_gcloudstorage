@@ -41,6 +41,7 @@ import google.cloud.storage
 import json
 import logging
 import os
+import threading
 import time
 
 
@@ -62,8 +63,23 @@ OBJECT_BASE_URL = "https://www.googleapis.com/storage/v1/b"
 CHUNK_SIZE = 524288
 MAX_RETRIES = 5
 
-# Global client, which according to the documentation is thread safe due to use of requests lib.
-DEFAULT_CLIENT = google.cloud.storage.Client()
+
+@lru_cache(maxsize=10)
+def _default_google_storage_client(_):
+    return google.cloud.storage.Client()
+
+
+def default_google_storage_client():
+    return _default_google_storage_client(threading.get_native_id())
+
+
+@lru_cache(maxsize=10)
+def _credentials_json_google_storage_client(thread_id, path):
+    return google.cloud.storage.Client.from_service_account_json(path)  # noqa
+
+
+def credentials_json_google_storage_client(path):
+    return _credentials_json_google_storage_client(threading.get_native_id(), path)
 
 
 class GoogleCloudException(Exception):
@@ -396,11 +412,6 @@ class GCloudFileField(Object):
         super(GCloudFileField, self).__init__(schema=self.schema, **kw)
 
 
-@lru_cache(maxsize=10)
-def client_from_credentials(path):
-    return google.cloud.storage.Client.from_service_account_json(path)  # noqa
-
-
 @alru_cache(maxsize=2)
 async def _get_access_token(_):
     url = "{}instance/service-accounts/{}/token".format(METADATA_URL, SERVICE_ACCOUNT)
@@ -442,7 +453,6 @@ class GCloudBlobStore(object):
         )
         self._cached_buckets = []
         self._creation_access_token = datetime.now()
-        self._client = None
         self._session = None
 
     @property
@@ -461,12 +471,9 @@ class GCloudBlobStore(object):
         return access_token
 
     def get_client(self):
-        if self._client is None:
-            if self._json_credentials:
-                self._client = client_from_credentials(self._json_credentials)
-            else:
-                self._client = DEFAULT_CLIENT
-        return self._client
+        if self._json_credentials:
+            return credentials_json_google_storage_client(self._json_credentials)
+        return default_google_storage_client()
 
     def _create_bucket(self, bucket_name, client):
         bucket = google.cloud.storage.Bucket(client, name=bucket_name)
