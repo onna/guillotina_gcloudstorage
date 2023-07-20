@@ -1,3 +1,7 @@
+6.0.12  (unreleased)
+-------------------
+- More auth retries
+
 6.0.11 (unreleased)
 ------------------
 - Cache/re-use google client.
