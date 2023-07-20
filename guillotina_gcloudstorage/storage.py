@@ -2,6 +2,7 @@
 from async_lru import alru_cache
 from datetime import datetime
 from datetime import timedelta
+from functools import lru_cache
 from guillotina import configure
 from guillotina import task_vars
 from guillotina.component import get_multi_adapter
@@ -60,6 +61,9 @@ UPLOAD_URL = "https://www.googleapis.com/upload/storage/v1/b/{bucket}/o?uploadTy
 OBJECT_BASE_URL = "https://www.googleapis.com/storage/v1/b"
 CHUNK_SIZE = 524288
 MAX_RETRIES = 5
+
+# Global client, which according to the documentation is thread safe due to use of requests lib.
+DEFAULT_CLIENT = google.cloud.storage.Client()
 
 
 class GoogleCloudException(Exception):
@@ -392,6 +396,11 @@ class GCloudFileField(Object):
         super(GCloudFileField, self).__init__(schema=self.schema, **kw)
 
 
+@lru_cache(maxsize=10)
+def client_from_credentials(path):
+    return google.cloud.storage.Client.from_service_account_json(path)  # noqa
+
+
 @alru_cache(maxsize=2)
 async def _get_access_token(_):
     url = "{}instance/service-accounts/{}/token".format(METADATA_URL, SERVICE_ACCOUNT)
@@ -454,13 +463,9 @@ class GCloudBlobStore(object):
     def get_client(self):
         if self._client is None:
             if self._json_credentials:
-                self._client = (
-                    google.cloud.storage.Client.from_service_account_json(  # noqa
-                        self._json_credentials
-                    )
-                )
+                self._client = client_from_credentials(self._json_credentials)
             else:
-                self._client = google.cloud.storage.Client()
+                self._client = DEFAULT_CLIENT
         return self._client
 
     def _create_bucket(self, bucket_name, client):

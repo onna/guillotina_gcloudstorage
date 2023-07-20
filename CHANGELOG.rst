@@ -1,3 +1,7 @@
+6.0.10 (unreleased)
+------------------
+- Cache/re-use google client.
+
 6.0.9 (unreleased)
 ------------------
 - Cache access tokens when using pod RBAC.
