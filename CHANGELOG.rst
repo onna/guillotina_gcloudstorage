@@ -1,6 +1,10 @@
-6.0.10 (unreleased)
+6.0.11 (unreleased)
 ------------------
 - Cache/re-use google client.
+
+6.0.10 (unreleased)
+------------------
+- Add retries when getting google client
 
 6.0.9 (unreleased)
 ------------------
