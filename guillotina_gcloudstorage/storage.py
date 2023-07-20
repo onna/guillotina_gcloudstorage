@@ -37,6 +37,7 @@ import backoff
 import google.api_core.exceptions
 import google.cloud.exceptions
 import google.cloud.storage
+import google.auth.exceptions
 import json
 import logging
 import os
@@ -68,6 +69,8 @@ class GoogleCloudException(Exception):
 
 RETRIABLE_EXCEPTIONS = (
     GoogleCloudException,
+    google.auth.exceptions.TransportError,
+    google.auth.exceptions.RefreshError,
     aiohttp.client_exceptions.ClientPayloadError,
     aiohttp.client_exceptions.ClientConnectorError,
     aiohttp.client_exceptions.ClientOSError,
@@ -167,7 +170,7 @@ class GCloudFileManager(object):
         ):
             yield chunk
 
-    @backoff.on_exception(backoff.expo, RETRIABLE_EXCEPTIONS, max_tries=4)
+    @backoff.on_exception(backoff.expo, RETRIABLE_EXCEPTIONS, max_tries=10)
     async def start(self, dm):
         """Init an upload.
 
@@ -214,7 +217,7 @@ class GCloudFileManager(object):
             current_upload=0, resumable_uri=resumable_uri, upload_file_id=upload_file_id
         )
 
-    @backoff.on_exception(backoff.expo, RETRIABLE_EXCEPTIONS, max_tries=4)
+    @backoff.on_exception(backoff.expo, RETRIABLE_EXCEPTIONS, max_tries=10)
     async def delete_upload(self, uri):
         util = get_utility(IGCloudBlobStore)
         if uri is not None:
@@ -242,7 +245,7 @@ class GCloudFileManager(object):
             raise AttributeError("No valid uri")
 
     @backoff.on_exception(
-        backoff.constant, RETRIABLE_EXCEPTIONS, interval=1, max_tries=4
+        backoff.constant, RETRIABLE_EXCEPTIONS, interval=1, max_tries=10
     )
     async def _append(self, dm, data, offset):
         if dm.size is not None:
@@ -332,7 +335,7 @@ class GCloudFileManager(object):
         async with util.session.get(url, headers=await self.get_headers()) as api_resp:
             return api_resp.status == 200
 
-    @backoff.on_exception(backoff.expo, RETRIABLE_EXCEPTIONS, max_tries=4)
+    @backoff.on_exception(backoff.expo, RETRIABLE_EXCEPTIONS, max_tries=10)
     async def copy(self, to_storage_manager, to_dm):
         file = self.field.get(self.field.context or self.context)
         if not _is_uploaded_file(file):
@@ -451,6 +454,7 @@ class GCloudBlobStore(object):
         self._creation_access_token = datetime.now()
         return access_token
 
+    @backoff.on_exception(backoff.expo, RETRIABLE_EXCEPTIONS, max_tries=10)
     def get_client(self):
         if self._client is None:
             if self._json_credentials:
