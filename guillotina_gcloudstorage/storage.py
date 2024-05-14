@@ -26,7 +26,7 @@ from guillotina.utils import apply_coroutine
 from guillotina.utils import get_authenticated_user_id
 from guillotina.utils import get_current_request
 from guillotina.utils import to_str
-from guillotina.interfaces.files import ICloudBlob
+from guillotina.files.field import BlobMetadata
 from guillotina_gcloudstorage.interfaces import IGCloudBlobStore
 from guillotina_gcloudstorage.interfaces import IGCloudFile
 from guillotina_gcloudstorage.interfaces import IGCloudFileField
@@ -105,15 +105,9 @@ def dictfile_converter(value, field):
     return GCloudFile(**value)
 
 
-@implementer(IGCloudFile, ICloudBlob)
+@implementer(IGCloudFile)
 class GCloudFile(BaseCloudFile):
     """File stored in a GCloud, with a filename."""
-
-    def __init__(self, key: str, bucket: str, size: int, createdTime: Optional[datetime]):
-        self.key = key
-        self.bucket = bucket
-        self.size = size
-        self.createdTime = createdTime
 
 
 def _is_uploaded_file(file):
@@ -621,13 +615,13 @@ class GCloudBlobStore(object):
         return blob.generate_signed_url(**request_args)
 
 
-    async def get_blobs(self, page_token: Optional[str] = None, prefix=None, max_keys=1000) -> Tuple[List[ICloudBlob], str]:
+    async def get_blobs(self, page_token: Optional[str] = None, prefix=None, max_keys=1000) -> Tuple[List[BlobMetadata], str]:
         """
         Get a page of items from the bucket
         """
         page = await self.iterate_bucket_page(page_token, prefix)
         blobs = [
-            GCloudFile(
+            BlobMetadata(
                 name = item.get("name"),
                 bucket = item.get("bucket"),
                 createdTime = item.get("timeCreated"),
@@ -636,7 +630,7 @@ class GCloudBlobStore(object):
             for item 
             in page.get("items", [])
         ]
-        next_page_token = page.get("nextPageToken")
+        next_page_token = page.get("nextPageToken", None)
 
         return blobs, next_page_token
 
