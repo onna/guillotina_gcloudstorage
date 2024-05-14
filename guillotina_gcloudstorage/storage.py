@@ -6,6 +6,7 @@ from datetime import timedelta
 from functools import lru_cache
 from guillotina import configure
 from guillotina import task_vars
+from guillotina.db.exceptions import DeleteStorageException
 from guillotina.component import get_multi_adapter
 from guillotina.component import get_utility
 from guillotina.exceptions import FileNotFoundException
@@ -678,4 +679,8 @@ class GCloudBlobStore(object):
             bucket_name = await self.get_bucket_name()
 
         bucket = client.bucket(bucket_name)
-        bucket.delete(force=True)
+        
+        try:
+            bucket.delete(force=True)
+        except ValueError:
+            raise DeleteStorageException()
