@@ -628,10 +628,10 @@ class GCloudBlobStore(object):
         page = await self.iterate_bucket_page(page_token, prefix)
         blobs = [
             GCloudFile(
-                key = item.get("name"),
+                name = item.get("name"),
                 bucket = item.get("bucket"),
                 createdTime = item.get("timeCreated"),
-                size = item.get("size")
+                size = int(item.get("size"))
             )
             for item 
             in page.get("items", [])
