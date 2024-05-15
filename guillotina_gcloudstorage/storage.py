@@ -3,6 +3,7 @@ import traceback
 from async_lru import alru_cache
 from datetime import datetime
 from datetime import timedelta
+from dateutil.parser import parse
 from functools import lru_cache
 from guillotina import configure
 from guillotina import task_vars
@@ -626,7 +627,7 @@ class GCloudBlobStore(object):
             BlobMetadata(
                 name = item.get("name"),
                 bucket = item.get("bucket"),
-                createdTime = item.get("timeCreated"),
+                createdTime = parse(item.get("timeCreated")),
                 size = int(item.get("size"))
             )
             for item 
