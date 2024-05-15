@@ -27,6 +27,7 @@ from guillotina.utils import get_authenticated_user_id
 from guillotina.utils import get_current_request
 from guillotina.utils import to_str
 from guillotina.files.field import BlobMetadata
+from guillotina.interfaces.files import IBlobVacuum
 from guillotina_gcloudstorage.interfaces import IGCloudBlobStore
 from guillotina_gcloudstorage.interfaces import IGCloudFile
 from guillotina_gcloudstorage.interfaces import IGCloudFileField
@@ -433,6 +434,7 @@ async def get_access_token():
     return await _get_access_token(round(time.time() / 300))
 
 
+@implementer(IBlobVacuum)
 class GCloudBlobStore(object):
     def __init__(self, settings, loop=None):
         self._loop = loop
