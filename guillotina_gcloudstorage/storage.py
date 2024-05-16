@@ -655,13 +655,12 @@ class GCloudBlobStore(object):
 
         success_keys = []
         failed_keys = []
-        # for response in batch._responses:
-        #     # key = response
-        #     key=1
-        #     if 200 <= response.status_code <= 300:
-        #         success_keys.append(key)
-        #     else:
-        #         failed_keys.append(key)
+        for idx, response in enumerate(batch._responses):
+            key=keys[idx]
+            if 200 <= response.status_code <= 300:
+                success_keys.append(key)
+            else:
+                failed_keys.append(key)
 
         return success_keys, failed_keys
 
