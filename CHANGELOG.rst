@@ -1,3 +1,7 @@
+6.1.0  (unreleased)
+-------------------
+- Updating cloud vacuum support to standardize implementation
+  
 6.0.12  (unreleased)
 -------------------
 - More auth retries

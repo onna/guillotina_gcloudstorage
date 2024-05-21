@@ -36,6 +36,7 @@ setup(
         "ujson",
         "backoff",
         "async-lru",
+        "zope-interface<6,>=5.0.0"
     ],
     extras_require={"test": test_reqs},
     tests_require=test_reqs,

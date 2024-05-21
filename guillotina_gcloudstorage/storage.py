@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
+import traceback
 from async_lru import alru_cache
 from datetime import datetime
 from datetime import timedelta
+from dateutil.parser import parse
 from functools import lru_cache
 from guillotina import configure
 from guillotina import task_vars
+from guillotina.db.exceptions import DeleteStorageException
 from guillotina.component import get_multi_adapter
 from guillotina.component import get_utility
 from guillotina.exceptions import FileNotFoundException
@@ -24,11 +27,13 @@ from guillotina.utils import apply_coroutine
 from guillotina.utils import get_authenticated_user_id
 from guillotina.utils import get_current_request
 from guillotina.utils import to_str
+from guillotina.files.field import BlobMetadata
+from guillotina.interfaces.files import IBlobVacuum
 from guillotina_gcloudstorage.interfaces import IGCloudBlobStore
 from guillotina_gcloudstorage.interfaces import IGCloudFile
 from guillotina_gcloudstorage.interfaces import IGCloudFileField
 from oauth2client.service_account import ServiceAccountCredentials
-from typing import AsyncIterator
+from typing import AsyncIterator, List, Optional, Tuple
 from urllib.parse import quote_plus
 from zope.interface import implementer
 
@@ -430,6 +435,7 @@ async def get_access_token():
     return await _get_access_token(round(time.time() / 300))
 
 
+@implementer(IBlobVacuum)
 class GCloudBlobStore(object):
     def __init__(self, settings, loop=None):
         self._loop = loop
@@ -610,3 +616,67 @@ class GCloudBlobStore(object):
         if credentials:
             request_args["credentials"] = credentials
         return blob.generate_signed_url(**request_args)
+
+
+    async def get_blobs(self, page_token: Optional[str] = None, prefix=None, max_keys=1000) -> Tuple[List[BlobMetadata], str]:
+        """
+        Get a page of items from the bucket
+        """
+        page = await self.iterate_bucket_page(page_token, prefix)
+        blobs = [
+            BlobMetadata(
+                name = item.get("name"),
+                bucket = item.get("bucket"),
+                createdTime = parse(item.get("timeCreated")),
+                size = int(item.get("size"))
+            )
+            for item 
+            in page.get("items", [])
+        ]
+        next_page_token = page.get("nextPageToken", None)
+
+        return blobs, next_page_token
+
+    
+    async def delete_blobs(self, keys: List[str], bucket_name: Optional[str] = None) -> Tuple[List[str], List[str]]:
+        """
+        Deletes a batch of files.  Returns successful and failed keys.
+        """
+        client = self.get_client()
+        
+        if not bucket_name:
+            bucket_name = await self.get_bucket_name()
+        
+        bucket = client.bucket(bucket_name)
+
+        with client.batch(raise_exception=False) as batch:
+            for key in keys:
+                bucket.delete_blob(key)
+
+        success_keys = []
+        failed_keys = []
+        for idx, response in enumerate(batch._responses):
+            key=keys[idx]
+            if 200 <= response.status_code <= 300:
+                success_keys.append(key)
+            else:
+                failed_keys.append(key)
+
+        return success_keys, failed_keys
+
+
+    async def delete_bucket(self, bucket_name: Optional[str] = None):
+        """
+        Delete the given bucket
+        """
+        client = self.get_client()
+
+        if not bucket_name:
+            bucket_name = await self.get_bucket_name()
+
+        bucket = client.bucket(bucket_name)
+        
+        try:
+            bucket.delete(force=True)
+        except ValueError:
+            raise DeleteStorageException()
