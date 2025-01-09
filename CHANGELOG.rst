@@ -1,3 +1,7 @@
+6.1.1
+-------------------
+- Add delete by prefix method
+
 6.1.0  (unreleased)
 -------------------
 - Updating cloud vacuum support to standardize implementation
