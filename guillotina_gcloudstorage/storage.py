@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-import traceback
 from async_lru import alru_cache
 from datetime import datetime
 from datetime import timedelta
@@ -243,8 +242,31 @@ class GCloudFileManager(object):
         )
 
     @backoff.on_exception(backoff.expo, RETRIABLE_EXCEPTIONS, max_tries=10)
+    async def delete_by_prefix(self, uri):
+        util = get_utility(IGCloudBlobStore)
+
+        if uri and "::" in uri:
+            prefix = uri.split("::")[0]
+            blobs, _ = await util.get_blobs(prefix=prefix)
+            candidate_keys = [blob.name for blob in blobs if "::" in blob.name]
+
+            if not candidate_keys:
+                return False
+
+            success_keys, failure_keys = await util.delete_blobs(
+                keys=candidate_keys, bucket_name=await util.get_bucket_name()
+            )
+            if failure_keys:
+                raise GoogleCloudException(f"Failed to delete {failure_keys[0]}")
+
+            return True
+        else:
+            raise AttributeError("No valid uri")
+
+    @backoff.on_exception(backoff.expo, RETRIABLE_EXCEPTIONS, max_tries=10)
     async def delete_upload(self, uri):
         util = get_utility(IGCloudBlobStore)
+
         if uri is not None:
             url = "{}/{}/o/{}".format(
                 OBJECT_BASE_URL, await util.get_bucket_name(), quote_plus(uri)
@@ -404,7 +426,7 @@ class GCloudFileManager(object):
 
     async def delete(self):
         file = self.field.get(self.field.context or self.context)
-        await self.delete_upload(file.uri)
+        return await self.delete_by_prefix(file.uri)
 
 
 @implementer(IGCloudFileField)
@@ -617,36 +639,36 @@ class GCloudBlobStore(object):
             request_args["credentials"] = credentials
         return blob.generate_signed_url(**request_args)
 
-
-    async def get_blobs(self, page_token: Optional[str] = None, prefix=None, max_keys=1000) -> Tuple[List[BlobMetadata], str]:
+    async def get_blobs(
+        self, page_token: Optional[str] = None, prefix=None, max_keys=1000
+    ) -> Tuple[List[BlobMetadata], str]:
         """
         Get a page of items from the bucket
         """
         page = await self.iterate_bucket_page(page_token, prefix)
         blobs = [
             BlobMetadata(
-                name = item.get("name"),
-                bucket = item.get("bucket"),
-                createdTime = parse(item.get("timeCreated")),
-                size = int(item.get("size"))
+                name=item.get("name"),
+                bucket=item.get("bucket"),
+                createdTime=parse(item.get("timeCreated")),
+                size=int(item.get("size")),
             )
-            for item 
-            in page.get("items", [])
+            for item in page.get("items", [])
         ]
         next_page_token = page.get("nextPageToken", None)
 
         return blobs, next_page_token
 
-    
-    async def delete_blobs(self, keys: List[str], bucket_name: Optional[str] = None) -> Tuple[List[str], List[str]]:
+    async def delete_blobs(
+        self, keys: List[str], bucket_name: Optional[str] = None
+    ) -> Tuple[List[str], List[str]]:
         """
         Deletes a batch of files.  Returns successful and failed keys.
         """
         client = self.get_client()
-        
         if not bucket_name:
             bucket_name = await self.get_bucket_name()
-        
+
         bucket = client.bucket(bucket_name)
 
         with client.batch(raise_exception=False) as batch:
@@ -656,14 +678,13 @@ class GCloudBlobStore(object):
         success_keys = []
         failed_keys = []
         for idx, response in enumerate(batch._responses):
-            key=keys[idx]
+            key = keys[idx]
             if 200 <= response.status_code <= 300:
                 success_keys.append(key)
             else:
                 failed_keys.append(key)
 
         return success_keys, failed_keys
-
 
     async def delete_bucket(self, bucket_name: Optional[str] = None):
         """
@@ -675,7 +696,7 @@ class GCloudBlobStore(object):
             bucket_name = await self.get_bucket_name()
 
         bucket = client.bucket(bucket_name)
-        
+
         try:
             bucket.delete(force=True)
         except ValueError:
