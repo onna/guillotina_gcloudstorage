@@ -286,6 +286,12 @@ class GCloudFileManager(object):
                             f"status: {resp.status}",
                             exc_info=True,
                         )
+                    elif resp.status == 403 and data.get("error", {}).get("errors", []):
+                        if len(data["error"]["errors"]) >= 1:
+                            error = data["error"]["errors"][0]
+                            if error["reason"] == "retentionPolicyNotMet":
+                                # Not deletable yet
+                                return
                     else:
                         raise GoogleCloudException(f"{resp.status}: {json.dumps(data)}")
         else:
