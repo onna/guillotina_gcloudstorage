@@ -1,3 +1,7 @@
+6.1.2
+--------------------
+- Ignore 403 errors when retention policy is set
+
 6.1.1
 -------------------
 - Add delete by prefix method
