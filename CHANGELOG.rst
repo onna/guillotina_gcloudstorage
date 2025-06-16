@@ -1,3 +1,8 @@
+6.1.3
+-------------------
+
+- Handle bucket override in settings
+
 6.1.2
 --------------------
 - Ignore 403 errors when retention policy is set

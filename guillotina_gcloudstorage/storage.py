@@ -569,12 +569,30 @@ class GCloudBlobStore(object):
 
     @backoff.on_exception(backoff.expo, RETRIABLE_EXCEPTIONS, max_tries=10)
     async def get_bucket_name(self):
+
+        container = task_vars.container.get()
+        gcs_bucket_override = getattr(container, "bucket_override", None)
+
+        if gcs_bucket_override:
+
+            if not await self.check_bucket_accessibility(gcs_bucket_override):
+                log.error(
+                    f"GCS bucket override '{gcs_bucket_override}' for container '{container.id}' is not accessible."
+                )
+
+                raise HTTPPreconditionFailed(
+                    content={
+                        "reason": f"Bucket {gcs_bucket_override} is not accessible"
+                    }
+                )
+            else:
+                return gcs_bucket_override
+
         if "." in self._bucket_name:
             char_delimiter = "."
         else:
             char_delimiter = "_"
 
-        container = task_vars.container.get()
         bucket_name = self._bucket_name_format.format(
             container=container.id.lower(),
             delimiter=char_delimiter,
@@ -633,6 +651,25 @@ class GCloudBlobStore(object):
             assert resp.status == 200
             data = await resp.json()
             return data
+
+    async def check_bucket_accessibility(self, bucket_name):
+        """
+        Checks if the specified GCS bucket exists and is accessible.
+        Returns True if accessible, False otherwise.
+        """
+        client = self.get_client()
+        try:
+            client.get_bucket(bucket_name)
+            return True
+        except google.cloud.exceptions.NotFound:
+            log.warning(f"Bucket '{bucket_name}' not found.")
+            return False
+        except google.cloud.exceptions.Forbidden:
+            log.warning(f"Forbidden to access bucket '{bucket_name}'.")
+            return False
+        except Exception as e:
+            log.error(f"Error checking accessibility for bucket '{bucket_name}': {e}")
+            return False
 
     async def generate_download_signed_url(
         self, key, expiration=timedelta(minutes=30), credentials=None

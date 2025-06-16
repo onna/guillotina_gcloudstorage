@@ -683,3 +683,19 @@ async def test_custom_bucket_name(dummy_request):
         )
         client.get_bucket(bucket_name)
         assert bucket_name.startswith("test-container-foobar")
+
+
+async def test_bucket_name_override(dummy_request):
+    util = get_utility(IGCloudBlobStore)
+    login()
+    container = create_content(Container, id="test-container")
+    task_vars.container.set(container)
+    container.bucket_override = "my-override-bucket"
+    with dummy_request:
+        # make sure util gets and configures bucket
+        bucket_name = await util.get_bucket_name()
+        client = google.cloud.storage.Client.from_service_account_json(
+            util._json_credentials
+        )
+        client.get_bucket(bucket_name)
+        assert bucket_name == "my-override-bucket"
