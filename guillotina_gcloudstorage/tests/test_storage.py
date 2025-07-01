@@ -20,6 +20,7 @@ from guillotina_gcloudstorage.storage import UPLOAD_URL
 from hashlib import md5
 from urllib.parse import quote_plus
 from zope.interface import Interface
+from unittest.mock import patch
 
 import aiohttp
 import base64
@@ -683,3 +684,20 @@ async def test_custom_bucket_name(dummy_request):
         )
         client.get_bucket(bucket_name)
         assert bucket_name.startswith("test-container-foobar")
+
+
+async def test_bucket_name_override(dummy_request):
+    util = get_utility(IGCloudBlobStore)
+    login()
+    container = create_content(Container, id="test-container")
+    task_vars.container.set(container)
+    container.bucket_override = "test-bucket"
+    with dummy_request:
+        # make sure util gets and configures bucket
+
+        with patch(
+            "guillotina_gcloudstorage.storage.GCloudBlobStore.check_bucket_accessibility",
+            return_value=True,
+        ):
+            bucket_name = await util.get_bucket_name()
+        assert bucket_name == "test-bucket"
