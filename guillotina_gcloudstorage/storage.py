@@ -210,6 +210,8 @@ class GCloudFileManager(object):
 
         generator = get_multi_adapter((self.context, self.field), IFileNameGenerator)
         upload_file_id = await apply_coroutine(generator)
+        if dm.get("extension"):
+            upload_file_id = f"{upload_file_id}.{dm.get('extension')}"
 
         init_url = "{}&name={}".format(
             UPLOAD_URL.format(bucket=await util.get_bucket_name()),
