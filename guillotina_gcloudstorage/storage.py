@@ -154,8 +154,10 @@ class GCloudFileManager(object):
             OBJECT_BASE_URL, await util.get_bucket_name(), quote_plus(uri)
         )
 
+        request_headers = await self.get_headers()
+        request_headers.update(headers or {})
         async with util.session.get(
-            url, headers=await self.get_headers(), params={"alt": "media"}, timeout=-1
+            url, headers=request_headers, params={"alt": "media"}, timeout=-1
         ) as api_resp:
             if api_resp.status not in (200, 206):
                 text = await api_resp.text()
