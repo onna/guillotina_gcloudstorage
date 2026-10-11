@@ -1,3 +1,7 @@
+6.1.4
+-------------------
+- Send the Range header when reading a range
+
 6.1.3
 -------------------
 
