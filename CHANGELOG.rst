@@ -1,3 +1,11 @@
+6.1.5
+-------------------
+- Cache the metadata server access token until shortly before it expires, instead of
+  for a fixed five-minute window that could outlive the token
+- On a 401 from Google Cloud Storage, drop the cached token so the next request uses a
+  fresh one; downloads and existence checks retry once
+- A download still rejected with 401 is reported as 503, not 404
+
 6.1.4
 -------------------
 - Send the Range header when reading a range
