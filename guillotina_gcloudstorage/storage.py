@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-from async_lru import alru_cache
 from datetime import datetime
 from datetime import timedelta
 from dateutil.parser import parse
@@ -21,6 +20,7 @@ from guillotina.interfaces import IResource
 from guillotina.response import HTTPGone
 from guillotina.response import HTTPNotFound
 from guillotina.response import HTTPPreconditionFailed
+from guillotina.response import HTTPServiceUnavailable
 from guillotina.schema import Object
 from guillotina.utils import apply_coroutine
 from guillotina.utils import get_authenticated_user_id
@@ -67,6 +67,8 @@ UPLOAD_URL = "https://www.googleapis.com/upload/storage/v1/b/{bucket}/o?uploadTy
 OBJECT_BASE_URL = "https://www.googleapis.com/storage/v1/b"
 CHUNK_SIZE = 524288
 MAX_RETRIES = 5
+# Refresh a metadata server token this many seconds before it expires
+TOKEN_REFRESH_MARGIN = 300
 
 
 @lru_cache(maxsize=10)
@@ -154,35 +156,42 @@ class GCloudFileManager(object):
             OBJECT_BASE_URL, await util.get_bucket_name(), quote_plus(uri)
         )
 
-        request_headers = await self.get_headers()
-        request_headers.update(headers or {})
-        async with util.session.get(
-            url, headers=request_headers, params={"alt": "media"}, timeout=-1
-        ) as api_resp:
-            if api_resp.status not in (200, 206):
-                text = await api_resp.text()
-                if api_resp.status == 404:
-                    raise HTTPNotFound(
-                        content={
-                            "reason": "Google cloud file not found",
-                            "response": text,
-                        }
-                    )
-                elif api_resp.status == 401:
-                    log.warning(f"Invalid google cloud credentials error: {text}")
-                    raise HTTPNotFound(
-                        content={
-                            "reason": "Google cloud invalid credentials",
-                            "response": text,
-                        }
-                    )
-                raise GoogleCloudException(f"{api_resp.status}: {text}")
-            while True:
-                chunk = await api_resp.content.read(1024 * 1024)
-                if len(chunk) > 0:
-                    yield chunk
-                else:
-                    break
+        for attempt in range(2):
+            request_headers = await self.get_headers()
+            request_headers.update(headers or {})
+            async with util.session.get(
+                url, headers=request_headers, params={"alt": "media"}, timeout=-1
+            ) as api_resp:
+                if api_resp.status not in (200, 206):
+                    text = await api_resp.text()
+                    if api_resp.status == 404:
+                        raise HTTPNotFound(
+                            content={
+                                "reason": "Google cloud file not found",
+                                "response": text,
+                            }
+                        )
+                    elif api_resp.status == 401:
+                        log.warning(f"Invalid google cloud credentials error: {text}")
+                        util.invalidate_access_token(
+                            _token_from_headers(request_headers)
+                        )
+                        if attempt == 0:
+                            continue
+                        raise HTTPServiceUnavailable(
+                            content={
+                                "reason": "Google cloud invalid credentials",
+                                "response": text,
+                            }
+                        )
+                    raise GoogleCloudException(f"{api_resp.status}: {text}")
+                while True:
+                    chunk = await api_resp.content.read(1024 * 1024)
+                    if len(chunk) > 0:
+                        yield chunk
+                    else:
+                        break
+                return
 
     async def range_supported(self) -> bool:
         return True
@@ -236,6 +245,8 @@ class GCloudFileManager(object):
         async with util.session.post(init_url, headers=headers, data=metadata) as call:
             if call.status != 200:
                 text = await call.text()
+                if call.status == 401:
+                    util.invalidate_access_token(_token_from_headers(headers))
                 raise GoogleCloudException(f"{call.status}: {text}")
             resumable_uri = call.headers["Location"]
 
@@ -273,9 +284,10 @@ class GCloudFileManager(object):
             url = "{}/{}/o/{}".format(
                 OBJECT_BASE_URL, await util.get_bucket_name(), quote_plus(uri)
             )
-            async with util.session.delete(
-                url, headers=await self.get_headers()
-            ) as resp:
+            request_headers = await self.get_headers()
+            async with util.session.delete(url, headers=request_headers) as resp:
+                if resp.status == 401:
+                    util.invalidate_access_token(_token_from_headers(request_headers))
                 try:
                     data = await resp.json()
                 except Exception:
@@ -387,8 +399,17 @@ class GCloudFileManager(object):
             OBJECT_BASE_URL, await util.get_bucket_name(), quote_plus(file.uri)
         )
 
-        async with util.session.get(url, headers=await self.get_headers()) as api_resp:
-            return api_resp.status == 200
+        for attempt in range(2):
+            request_headers = await self.get_headers()
+            async with util.session.get(url, headers=request_headers) as api_resp:
+                if api_resp.status == 401:
+                    util.invalidate_access_token(_token_from_headers(request_headers))
+                    if attempt == 0:
+                        continue
+                    text = await api_resp.text()
+                    raise GoogleCloudException(f"{api_resp.status}: {text}")
+                return api_resp.status == 200
+        return False
 
     @backoff.on_exception(backoff.expo, RETRIABLE_EXCEPTIONS, max_tries=10)
     async def copy(self, to_storage_manager, to_dm):
@@ -413,6 +434,10 @@ class GCloudFileManager(object):
         headers = await self.get_headers()
         headers.update({"Content-Type": "application/json"})
         async with util.session.post(url, headers=headers) as resp:
+            if resp.status == 401:
+                util.invalidate_access_token(_token_from_headers(headers))
+                text = await resp.text()
+                raise GoogleCloudException(f"{resp.status}: {text}")
             if resp.status == 404:
                 text = await resp.text()
                 reason = (
@@ -450,19 +475,73 @@ class GCloudFileField(Object):
         super(GCloudFileField, self).__init__(schema=self.schema, **kw)
 
 
-@alru_cache(maxsize=2)
-async def _get_access_token(_):
+class _AccessTokenCache:
+    def __init__(self):
+        self.token: Optional[str] = None
+        self.refresh_at = 0.0
+        self.pending: Optional[asyncio.Task] = None
+
+    def get(self, now: float) -> Optional[str]:
+        if self.token is not None and now < self.refresh_at:
+            return self.token
+        return None
+
+    def set(self, token: str, expires_in: float, now: float):
+        if expires_in > 2 * TOKEN_REFRESH_MARGIN:
+            refresh_in = expires_in - TOKEN_REFRESH_MARGIN
+        else:
+            refresh_in = expires_in / 2
+        self.token = token
+        self.refresh_at = now + refresh_in
+
+    def invalidate(self, token: Optional[str] = None):
+        if token is None or token == self.token:
+            self.token = None
+            self.refresh_at = 0.0
+
+
+_metadata_token = _AccessTokenCache()
+
+
+async def _fetch_metadata_token() -> Tuple[str, float]:
     url = "{}instance/service-accounts/{}/token".format(METADATA_URL, SERVICE_ACCOUNT)
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers=METADATA_HEADERS) as resp:
+            if resp.status != 200:
+                text = await resp.text()
+                raise GoogleCloudException(
+                    f"Metadata server token request failed: {resp.status}: {text}"
+                )
+            data = await resp.json()
+    return data["access_token"], float(data.get("expires_in", 0))
 
-    # Request an access token from the metadata server.
-    async with aiohttp.ClientSession().get(url, headers=METADATA_HEADERS) as resp:
-        assert resp.status == 200
-        data = await resp.json()
-        return data["access_token"]
+
+async def _refresh_metadata_token() -> str:
+    token, expires_in = await _fetch_metadata_token()
+    _metadata_token.set(token, expires_in, time.time())
+    return token
 
 
-async def get_access_token():
-    return await _get_access_token(round(time.time() / 300))
+async def get_access_token() -> str:
+    token = _metadata_token.get(time.time())
+    if token is not None:
+        return token
+    # Concurrent callers on the same loop share one in-flight fetch
+    loop = asyncio.get_running_loop()
+    pending = _metadata_token.pending
+    if pending is None or pending.done() or pending.get_loop() is not loop:
+        pending = loop.create_task(_refresh_metadata_token())
+        _metadata_token.pending = pending
+    return await asyncio.shield(pending)
+
+
+def invalidate_access_token(token: Optional[str] = None):
+    _metadata_token.invalidate(token)
+
+
+def _token_from_headers(headers: dict) -> Optional[str]:
+    auth = headers.get("AUTHORIZATION") or ""
+    return auth[len("Bearer ") :] if auth.startswith("Bearer ") else None
 
 
 @implementer(IBlobVacuum)
@@ -508,6 +587,13 @@ class GCloudBlobStore(object):
             access_token = self._credentials.get_access_token().access_token
         self._creation_access_token = datetime.now()
         return access_token
+
+    def invalidate_access_token(self, token: Optional[str] = None):
+        """Drop a token Google rejected, so the next request fetches a new one."""
+        if not self._credentials:
+            invalidate_access_token(token)
+        elif token is None or self._credentials.access_token == token:
+            self._credentials.access_token = None
 
     @backoff.on_exception(backoff.expo, RETRIABLE_EXCEPTIONS, max_tries=10)
     def get_client(self):
@@ -650,6 +736,8 @@ class GCloudBlobStore(object):
             headers = {"AUTHORIZATION": f"Bearer {access_token}"}
 
         async with self.session.get(url, headers=headers, params=params) as resp:
+            if resp.status == 401:
+                self.invalidate_access_token(access_token)
             assert resp.status == 200
             data = await resp.json()
             return data
